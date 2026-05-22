@@ -1,0 +1,1773 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 戰場射擊訓練所 - Elite Warzone Sniper Lab</title>
+    <!-- Tailwind CSS for modern responsive UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js for 3D Graphics rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #0c0202;
+        }
+        /* Custom scrollbars for stats or menus if needed */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(31, 41, 55, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(239, 68, 68, 0.5);
+            border-radius: 3px;
+        }
+        /* Glassmorphism utility with red battle theme accents */
+        .glass {
+            background: rgba(15, 7, 7, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+        }
+        /* Crosshair styles */
+        .crosshair-dot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 30; /* 提升至 30，確保在狙擊鏡黑色遮罩上方完美顯示 */
+        }
+        /* Sniper scope overlay black masking */
+        .scope-vignette {
+            background: radial-gradient(circle 240px at center, transparent 99%, rgba(0,0,0,0.98) 100%);
+        }
+    </style>
+</head>
+<body class="w-full h-screen relative select-none">
+
+    <!-- HIGH-TECH SNIPER SCOPE OVERLAY -->
+    <div id="sniper-scope-overlay" class="absolute inset-0 z-15 pointer-events-none flex items-center justify-center hidden">
+        <div class="absolute inset-0 scope-vignette"></div>
+        <!-- Reticle Graphic -->
+        <div class="relative w-[480px] h-[480px] rounded-full border border-neutral-700/30 flex items-center justify-center">
+            <!-- Main lines -->
+            <div class="absolute w-full h-[1.5px] bg-red-600/60"></div>
+            <div class="absolute h-full w-[1.5px] bg-red-600/60"></div>
+            <!-- Concentric rings -->
+            <div class="absolute w-[240px] h-[240px] rounded-full border border-red-500/30"></div>
+            <div class="absolute w-[120px] h-[120px] rounded-full border border-red-500/45"></div>
+            <!-- Scope stats text -->
+            <div class="absolute top-8 text-[11px] text-red-500 font-mono font-bold tracking-widest">ZOOM: 12.0X</div>
+            <div class="absolute bottom-8 text-[10px] text-red-500/70 font-mono tracking-widest">TACTICAL RANGE-FINDER</div>
+            <!-- Windage tick marks -->
+            <div class="absolute left-1/4 right-1/4 h-[10px] flex justify-between items-center pointer-events-none">
+                <span class="w-[1px] h-3 bg-red-500/60"></span>
+                <span class="w-[1px] h-2 bg-red-500/60"></span>
+                <span class="w-[1px] h-2 bg-red-500/60"></span>
+                <span class="w-[1px] h-2 bg-red-500/60"></span>
+                <span class="w-[1px] h-3 bg-red-500/60"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Loading Screen -->
+    <div id="loader" class="absolute inset-0 bg-neutral-950 z-50 flex flex-col justify-center items-center text-white">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-rose-600 mb-4"></div>
+        <h2 class="text-2xl font-bold text-rose-500 tracking-wider">加載 3D 烽火戰場資源中...</h2>
+        <p class="text-neutral-400 text-sm mt-2">正在配置軍事防空洞與戰術武器模型</p>
+    </div>
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container" class="w-full h-full absolute inset-0 z-0"></div>
+
+    <!-- FPS Mode Crosshair -->
+    <div id="fps-crosshair" class="crosshair-dot hidden">
+        <svg id="crosshair-svg" width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="16" cy="16" r="2" fill="#34d399" id="crosshair-dot-el" />
+            <line x1="16" y1="4" x2="16" y2="12" stroke="#34d399" stroke-width="2" stroke-linecap="round" id="crosshair-top" />
+            <line x1="16" y1="20" x2="16" y2="28" stroke="#34d399" stroke-width="2" stroke-linecap="round" id="crosshair-bottom" />
+            <line x1="4" y1="16" x2="12" y2="16" stroke="#34d399" stroke-width="2" stroke-linecap="round" id="crosshair-left" />
+            <line x1="20" y1="16" x2="28" y2="16" stroke="#34d399" stroke-width="2" stroke-linecap="round" id="crosshair-right" />
+        </svg>
+    </div>
+
+    <!-- GAME HUD (Heads-Up Display) -->
+    <div id="game-hud" class="absolute top-0 left-0 w-full p-4 md:p-6 flex justify-between items-start z-10 pointer-events-none transition-opacity duration-300 opacity-0">
+        <!-- Left panel: Stats -->
+        <div class="glass rounded-2xl p-4 flex gap-6 text-white pointer-events-auto shadow-lg shadow-rose-950/20">
+            <div class="text-center">
+                <span class="text-xs text-neutral-400 block uppercase tracking-wider font-semibold">分數 Score</span>
+                <span id="hud-score" class="text-3xl font-extrabold text-rose-500">0000</span>
+            </div>
+            <div class="w-px bg-neutral-800 self-stretch"></div>
+            <div class="text-center">
+                <span class="text-xs text-neutral-400 block uppercase tracking-wider font-semibold">命中率 Acc</span>
+                <span id="hud-accuracy" class="text-3xl font-extrabold text-amber-500">100%</span>
+            </div>
+            <div class="w-px bg-neutral-800 self-stretch"></div>
+            <div class="text-center">
+                <span class="text-xs text-neutral-400 block uppercase tracking-wider font-semibold">擊中 Hits</span>
+                <span id="hud-hits" class="text-3xl font-extrabold text-emerald-400">0</span>
+            </div>
+        </div>
+
+        <!-- Center panel: Timer -->
+        <div class="glass rounded-2xl px-6 py-4 text-center text-white pointer-events-auto flex flex-col items-center border border-rose-500/30">
+            <span class="text-xs text-neutral-400 block uppercase tracking-wider font-semibold">戰火倒數 Time</span>
+            <span id="hud-timer" class="text-4xl font-black text-rose-500 font-mono tracking-widest">30.0s</span>
+        </div>
+
+        <!-- Right panel: Controls Info -->
+        <div class="glass rounded-2xl p-4 text-white pointer-events-auto flex flex-col justify-center items-end text-right">
+            <div class="flex items-center gap-2 mb-1">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                <span id="hud-mode-name" class="font-bold text-sm tracking-wide">戰地訓練</span>
+            </div>
+            <span class="text-xs text-neutral-400" id="hud-control-type">控制：滑鼠</span>
+            <button id="btn-pause" class="mt-2 text-xs bg-neutral-900 hover:bg-neutral-800 transition px-3 py-1.5 rounded-lg border border-neutral-700 font-medium">
+                暫停選單 (ESC)
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN MENU (Overlay) -->
+    <div id="main-menu" class="absolute inset-0 z-20 flex justify-center items-center p-4 bg-gradient-to-br from-neutral-950/97 via-neutral-900/94 to-neutral-950/97 transition-all duration-300">
+        <div class="glass max-w-2xl w-full rounded-3xl p-6 md:p-8 text-white shadow-2xl shadow-rose-950/20 max-h-[90vh] overflow-y-auto">
+            <!-- Logo Section -->
+            <div class="text-center mb-6">
+                <div class="inline-flex items-center justify-center p-3 bg-rose-600/20 border border-rose-500/40 rounded-2xl mb-3 shadow-inner">
+                    <!-- SVG Tactical Crosshair Icon -->
+                    <svg class="w-8 h-8 text-rose-500 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-11.314l.707.707m11.314 11.314l.707-.707M12 17a5 5 0 100-10 5 5 0 000 10z" />
+                    </svg>
+                </div>
+                <h1 class="text-3xl md:text-4xl font-black tracking-wider bg-gradient-to-r from-white via-rose-200 to-rose-500 bg-clip-text text-transparent">
+                    3D 戰地狙擊訓練場
+                </h1>
+                <p class="text-neutral-400 text-sm mt-1">全新：狙擊槍開鏡縮放、長程特訓、盲射特訓，隨時極速補球！</p>
+            </div>
+
+            <!-- Main Content Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- Column 1: Mode Selector -->
+                <div class="flex flex-col gap-3">
+                    <h3 class="text-xs font-semibold text-rose-500 uppercase tracking-wider mb-1">1. 選擇戰術模式</h3>
+                    <!-- Classic Mode -->
+                    <button id="mode-classic" class="mode-btn text-left p-3 rounded-xl border border-rose-500 bg-rose-950/30 hover:bg-rose-900/30 transition flex items-start gap-3 group">
+                        <span class="p-2 bg-rose-500/20 rounded-lg text-rose-400 group-hover:scale-110 transition mt-0.5">🎯</span>
+                        <div>
+                            <div class="font-bold text-sm text-white">戰地常規 (Classic)</div>
+                            <div class="text-xs text-neutral-400 mt-0.5">場上永久維持 3 顆球，擊碎或縮小消失立刻瞬間補上新目標。</div>
+                        </div>
+                    </button>
+                    <!-- Gridshot Mode -->
+                    <button id="mode-gridshot" class="mode-btn text-left p-3 rounded-xl border border-neutral-850 bg-neutral-900/40 hover:bg-neutral-800/60 transition flex items-start gap-3 group">
+                        <span class="p-2 bg-amber-500/20 rounded-lg text-amber-400 group-hover:scale-110 transition mt-0.5">⚡</span>
+                        <div>
+                            <div class="font-bold text-sm text-neutral-300">極速拉槍 (Gridshot)</div>
+                            <div class="text-xs text-neutral-400 mt-0.5">小區域內維持 3 點網格。打碎的瞬間，下一顆球零秒就地補位。</div>
+                        </div>
+                    </button>
+                    <!-- Tracking Mode -->
+                    <button id="mode-tracking" class="mode-btn text-left p-3 rounded-xl border border-neutral-850 bg-neutral-900/40 hover:bg-neutral-800/60 transition flex items-start gap-3 group">
+                        <span class="p-2 bg-emerald-500/20 rounded-lg text-emerald-400 group-hover:scale-110 transition mt-0.5">🌀</span>
+                        <div>
+                            <div class="font-bold text-sm text-neutral-300">防空追蹤 (Tracking)</div>
+                            <div class="text-xs text-neutral-400 mt-0.5">單一高機動戰機目標進行 3D 動態移動，持續維持雷射跟槍。</div>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- Column 2: Controls & Settings -->
+                <div class="flex flex-col gap-4">
+                    <h3 class="text-xs font-semibold text-rose-500 uppercase tracking-wider mb-1">2. 武器與操作設定</h3>
+                    
+                    <!-- NEW Weapon & Mode Selection -->
+                    <div class="bg-neutral-900/80 border border-neutral-850 p-3 rounded-xl">
+                        <label class="block text-xs text-neutral-400 font-medium">訓練武器與靶距 (Weapon & Distance)</label>
+                        <select id="weapon-type" class="bg-neutral-800 text-xs border border-neutral-700 rounded p-2 text-white flex-1 w-full focus:outline-none focus:border-rose-500 mt-1.5 font-semibold">
+                            <option value="rifle" selected>⚔️ 突擊步槍 (中近程實戰 - 15m)</option>
+                            <option value="sniper">🔭 狙擊步槍 (遠程開鏡特訓 - 40m)</option>
+                            <option value="noscope">🎯 狙擊步槍 (無瞄準點盲射 - 40m)</option>
+                        </select>
+                        <p id="weapon-hint" class="text-[10px] text-neutral-400 mt-1.5">
+                            💡 **狙擊模式**：牆面拉遠至 40m。開鏡時滑鼠右鍵可縮放(ADS)，開鏡後靈敏度自動降低。
+                        </p>
+                    </div>
+
+                    <!-- Control Type Selection -->
+                    <div class="bg-neutral-900/80 border border-neutral-850 p-3 rounded-xl">
+                        <label class="block text-xs text-neutral-400 font-medium mb-1.5">手感控制模式</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="control-cursor" class="py-1.5 px-2 text-xs rounded-lg font-bold border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition">
+                                游標直接點擊
+                            </button>
+                            <button id="control-lock" class="py-1.5 px-2 text-xs rounded-lg font-bold border border-rose-500 bg-rose-600/20 text-white transition flex items-center justify-center gap-1">
+                                FPS 第一人稱 <span class="text-[9px] bg-rose-700 px-1 rounded">強烈推薦</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Sensitivity Slider -->
+                    <div class="bg-neutral-900/80 border border-neutral-850 p-3 rounded-xl">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs text-neutral-400 font-medium">迴轉靈敏度 (Sens)</label>
+                            <span id="sens-val" class="text-xs font-mono font-bold text-rose-400">1.5</span>
+                        </div>
+                        <input type="range" id="input-sens" min="0.1" max="5.0" step="0.1" value="1.5" class="w-full accent-rose-500 h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Crosshair Customization -->
+                    <div class="bg-neutral-900/80 border border-neutral-850 p-3 rounded-xl flex flex-col gap-2">
+                        <label class="text-xs text-neutral-400 font-medium">戰術光學準心自訂</label>
+                        <div class="flex items-center gap-4">
+                            <!-- Color Picker -->
+                            <div class="flex gap-1.5">
+                                <button class="cross-color-btn w-5 h-5 rounded-full bg-emerald-400 border-2 border-white" data-color="#34d399"></button>
+                                <button class="cross-color-btn w-5 h-5 rounded-full bg-sky-400 hover:scale-105 transition" data-color="#38bdf8"></button>
+                                <button class="cross-color-btn w-5 h-5 rounded-full bg-rose-500 hover:scale-105 transition" data-color="#f43f5e"></button>
+                                <button class="cross-color-btn w-5 h-5 rounded-full bg-amber-400 hover:scale-105 transition" data-color="#fbbf24"></button>
+                            </div>
+                            <!-- Size Select -->
+                            <select id="cross-size" class="bg-neutral-800 text-xs border border-neutral-700 rounded p-1 text-white flex-1 focus:outline-none focus:border-rose-500">
+                                <option value="small">高精度小準心</option>
+                                <option value="medium" selected>標準戰地十字</option>
+                                <option value="large">開闊野戰十字</option>
+                                <option value="dot">微量戰術點</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Start Action Button -->
+            <button id="btn-start" class="w-full py-4 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 transition-all font-bold text-lg text-white rounded-2xl shadow-lg shadow-rose-500/20 transform active:scale-[0.99] flex items-center justify-center gap-2">
+                裝填彈藥．進入戰區
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- PAUSE MENU (Overlay) -->
+    <div id="pause-menu" class="absolute inset-0 z-20 flex justify-center items-center p-4 bg-neutral-950/80 backdrop-blur-sm transition-all duration-300 hidden">
+        <div class="glass max-w-sm w-full rounded-2xl p-6 text-white text-center shadow-xl border border-rose-500/30">
+            <h2 class="text-2xl font-black text-rose-500 tracking-wider mb-2">戰火暫停 PAUSED</h2>
+            <p class="text-neutral-400 text-sm mb-6">調整呼吸、校對槍管重新投入戰鬥。</p>
+            <div class="flex flex-col gap-3">
+                <button id="btn-resume" class="w-full py-2.5 bg-rose-600 hover:bg-rose-500 rounded-xl font-bold transition">
+                    重新回到戰壕 (Resume)
+                </button>
+                <button id="btn-restart-mid" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded-xl font-bold transition">
+                    重置戰役 (Restart)
+                </button>
+                <button id="btn-quit" class="w-full py-2.5 bg-rose-950/40 hover:bg-rose-900/40 border border-rose-900/30 text-rose-400 rounded-xl font-bold transition text-sm">
+                    退出前線 (Quit)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- END GAME REPORT (Overlay) -->
+    <div id="end-menu" class="absolute inset-0 z-30 flex justify-center items-center p-4 bg-gradient-to-br from-neutral-950/95 to-neutral-900/90 backdrop-blur-md transition-all duration-300 hidden">
+        <div class="glass max-w-xl w-full rounded-3xl p-6 md:p-8 text-white shadow-2xl border border-rose-500/20 max-h-[90vh] overflow-y-auto">
+            <!-- Header -->
+            <div class="text-center mb-6">
+                <span class="text-xs bg-rose-500/20 text-rose-300 px-3 py-1 rounded-full border border-rose-500/30 font-bold uppercase tracking-widest animate-pulse">
+                    戰報解讀 WARZONE REPORT
+                </span>
+                <h2 id="end-title" class="text-3xl font-extrabold mt-2 tracking-tight text-white">演習結束！</h2>
+                <p id="end-mode-name" class="text-neutral-400 text-sm mt-0.5">模式：戰地常規模式</p>
+            </div>
+
+            <!-- Main Score & Rank Showcase -->
+            <div class="flex justify-around items-center bg-neutral-900/80 border border-neutral-850 rounded-2xl p-6 mb-6">
+                <div class="text-center">
+                    <span class="text-xs text-neutral-400 block uppercase tracking-wider font-semibold">作戰評分 Score</span>
+                    <span id="end-score" class="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-amber-400">0</span>
+                </div>
+                <div class="w-px h-16 bg-neutral-850"></div>
+                <div class="text-center">
+                    <span class="text-xs text-neutral-400 block uppercase tracking-wider font-semibold">戰力評級 Rank</span>
+                    <span id="end-rank" class="text-5xl md:text-6xl font-black text-rose-500 font-mono tracking-tighter">S</span>
+                </div>
+            </div>
+
+            <!-- Detailed Stats Grid -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <!-- Accuracy -->
+                <div class="bg-neutral-900/40 border border-neutral-850 p-3.5 rounded-xl">
+                    <span class="text-xs text-neutral-400 block font-medium">射擊準確率 Accuracy</span>
+                    <span id="end-accuracy" class="text-xl font-bold text-amber-500">100%</span>
+                </div>
+                <!-- Hits / Misses -->
+                <div class="bg-neutral-900/40 border border-neutral-850 p-3.5 rounded-xl">
+                    <span class="text-xs text-neutral-400 block font-medium">擊中 / 脫靶次數</span>
+                    <span id="end-hits-misses" class="text-xl font-bold text-emerald-400">0 / 0</span>
+                </div>
+                <!-- KPS -->
+                <div class="bg-neutral-900/40 border border-neutral-850 p-3.5 rounded-xl">
+                    <span class="text-xs text-neutral-400 block font-medium">每秒打擊速率 (KPS)</span>
+                    <span id="end-kps" class="text-xl font-bold text-indigo-400">0.0</span>
+                </div>
+                <!-- Avg Reaction -->
+                <div class="bg-neutral-900/40 border border-neutral-850 p-3.5 rounded-xl">
+                    <span class="text-xs text-neutral-400 block font-medium">平均拉槍反應時間</span>
+                    <span id="end-reaction" class="text-xl font-bold text-rose-400">0 ms</span>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="grid grid-cols-2 gap-4">
+                <button id="btn-restart" class="py-3.5 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 transition font-bold text-sm text-white rounded-xl shadow-lg shadow-rose-500/10 flex items-center justify-center gap-1">
+                    🚀 再次出征 (Play Again)
+                </button>
+                <button id="btn-home" class="py-3.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 transition font-bold text-sm rounded-xl">
+                    🏠 返回營地 (Menu)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- POINTER LOCK CLICK PROMPT (ONLY ACTIVE IN LOCK MODE) -->
+    <div id="lock-prompt" class="absolute inset-0 z-10 flex justify-center items-center bg-neutral-950/80 text-center text-white hidden">
+        <div class="max-w-md p-6 glass rounded-2xl pointer-events-auto cursor-pointer" id="btn-activate-lock">
+            <div class="w-16 h-16 mx-auto mb-4 border-2 border-dashed border-rose-500 rounded-full flex items-center justify-center animate-bounce">
+                🖱️
+            </div>
+            <h3 class="text-xl font-extrabold text-rose-400">點擊此處鎖定槍管方向</h3>
+            <p id="lock-prompt-text" class="text-neutral-400 text-xs mt-2">
+                進入第一人稱作戰。移動滑鼠拉轉視角，左鍵擊碎球體！<br>
+                在任何時候按 <kbd class="px-1.5 py-0.5 bg-neutral-800 rounded font-mono text-[10px] text-rose-400 border border-neutral-700">ESC</kbd> 即可解鎖游標並暫停。
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Global Game Configuration and State
+        const CONFIG = {
+            sensitivity: 1.5,
+            controlType: 'lock', // FPS mode default
+            gameMode: 'classic', // 'classic', 'gridshot', 'tracking'
+            weaponType: 'rifle', // 'rifle' (Assault), 'sniper' (ADS), 'noscope' (No crosshair)
+            gameDuration: 30, // seconds
+            crosshair: {
+                color: '#34d399',
+                size: 'medium'
+            }
+        };
+
+        const STATE = {
+            score: 0,
+            hits: 0,
+            misses: 0,
+            totalClicks: 0,
+            timeRemaining: 30,
+            isActive: false,
+            isPaused: false,
+            startTime: null,
+            timerInterval: null,
+            isScoped: false, // Sniper Scoped ADS State
+            // Mode-specific analytics
+            spawnTimes: [],
+            hitTimes: [],
+            reactionTimes: [],
+            isTrackingHit: false,
+            lastTrackTick: 0
+        };
+
+        // DOM elements mapping
+        const dom = {
+            loader: document.getElementById('loader'),
+            canvasContainer: document.getElementById('canvas-container'),
+            fpsCrosshair: document.getElementById('fps-crosshair'),
+            hud: document.getElementById('game-hud'),
+            hudScore: document.getElementById('hud-score'),
+            hudAccuracy: document.getElementById('hud-accuracy'),
+            hudHits: document.getElementById('hud-hits'),
+            hudTimer: document.getElementById('hud-timer'),
+            hudModeName: document.getElementById('hud-mode-name'),
+            hudControlType: document.getElementById('hud-control-type'),
+            btnPause: document.getElementById('btn-pause'),
+
+            mainMenu: document.getElementById('main-menu'),
+            modeBtns: document.querySelectorAll('.mode-btn'),
+            controlCursor: document.getElementById('control-cursor'),
+            controlLock: document.getElementById('control-lock'),
+            inputSens: document.getElementById('input-sens'),
+            sensVal: document.getElementById('sens-val'),
+            crossColorBtns: document.querySelectorAll('.cross-color-btn'),
+            crossSizeSelect: document.getElementById('cross-size'),
+            btnStart: document.getElementById('btn-start'),
+
+            pauseMenu: document.getElementById('pause-menu'),
+            btnResume: document.getElementById('btn-resume'),
+            btnRestartMid: document.getElementById('btn-restart-mid'),
+            btnQuit: document.getElementById('btn-quit'),
+
+            endMenu: document.getElementById('end-menu'),
+            endTitle: document.getElementById('end-title'),
+            endModeName: document.getElementById('end-mode-name'),
+            endScore: document.getElementById('end-score'),
+            endRank: document.getElementById('end-rank'),
+            endAccuracy: document.getElementById('end-accuracy'),
+            endHitsMisses: document.getElementById('end-hits-misses'),
+            endKps: document.getElementById('end-kps'),
+            endReaction: document.getElementById('end-reaction'),
+            btnRestart: document.getElementById('btn-restart'),
+            btnHome: document.getElementById('btn-home'),
+
+            lockPrompt: document.getElementById('lock-prompt'),
+            lockPromptText: document.getElementById('lock-prompt-text'),
+            btnActivateLock: document.getElementById('btn-activate-lock'),
+            crosshairSvg: document.getElementById('crosshair-svg'),
+            
+            weaponType: document.getElementById('weapon-type'),
+            weaponHint: document.getElementById('weapon-hint'),
+            sniperScopeOverlay: document.getElementById('sniper-scope-overlay')
+        };
+
+        // Prevent right click context menu to allow smooth ADS
+        window.addEventListener('contextmenu', e => e.preventDefault());
+
+        // Synthesize dynamic Sound effects
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            const now = audioCtx.currentTime;
+            
+            if (type === 'shoot') {
+                if (CONFIG.weaponType === 'rifle') {
+                    // Hard tactical rifle gunshot
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(380, now);
+                    osc.frequency.exponentialRampToValueAtTime(40, now + 0.18);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+                    osc.start(now);
+                    osc.stop(now + 0.18);
+                } else {
+                    // Heavy, massive Sniper gunshot rumble
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(180, now);
+                    osc.frequency.exponentialRampToValueAtTime(10, now + 0.35);
+                    gain.gain.setValueAtTime(0.42, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                    osc.start(now);
+                    osc.stop(now + 0.35);
+                    
+                    // Extra sub-bass thump
+                    const subOsc = audioCtx.createOscillator();
+                    const subGain = audioCtx.createGain();
+                    subOsc.type = 'sine';
+                    subOsc.connect(subGain);
+                    subGain.connect(audioCtx.destination);
+                    subOsc.frequency.setValueAtTime(65, now);
+                    subOsc.frequency.linearRampToValueAtTime(5, now + 0.4);
+                    subGain.gain.setValueAtTime(0.5, now);
+                    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                    subOsc.start(now);
+                    subOsc.stop(now + 0.4);
+                }
+                
+                // Gun powder pop noise
+                const noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.12, audioCtx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < noiseBuffer.length; i++) {
+                    output[i] = Math.random() * 2 - 1;
+                }
+                const noiseNode = audioCtx.createBufferSource();
+                noiseNode.buffer = noiseBuffer;
+                const noiseGain = audioCtx.createGain();
+                noiseGain.gain.setValueAtTime(type === 'rifle' ? 0.18 : 0.28, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                noiseNode.connect(noiseGain);
+                noiseGain.connect(audioCtx.destination);
+                noiseNode.start(now);
+                noiseNode.stop(now + 0.12);
+
+            } else if (type === 'hit') {
+                // Clean metallic bullet impact ring
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(950, now);
+                osc.frequency.exponentialRampToValueAtTime(1400, now + 0.05);
+                osc.frequency.setValueAtTime(1200, now + 0.05);
+                gain.gain.setValueAtTime(0.28, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+                osc.start(now);
+                osc.stop(now + 0.22);
+
+            } else if (type === 'miss') {
+                // Bullet ricocheting/whizzing by sound
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.linearRampToValueAtTime(70, now + 0.2);
+                gain.gain.setValueAtTime(0.12, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+
+            } else if (type === 'countdown') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(500, now);
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+
+            } else if (type === 'zoom') {
+                // Sniper zoom mechanical click
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.setValueAtTime(900, now + 0.03);
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+                osc.start(now);
+                osc.stop(now + 0.06);
+
+            } else if (type === 'gameover') {
+                // Tactical end siren
+                const notes = [293.66, 349.23, 440.00, 523.25];
+                notes.forEach((freq, idx) => {
+                    const o = audioCtx.createOscillator();
+                    const g = audioCtx.createGain();
+                    o.type = 'sawtooth';
+                    o.connect(g);
+                    g.connect(audioCtx.destination);
+                    o.frequency.setValueAtTime(freq, now + idx * 0.1);
+                    g.gain.setValueAtTime(0.12, now + idx * 0.1);
+                    g.gain.exponentialRampToValueAtTime(0.001, now + 0.6 + idx * 0.08);
+                    o.start(now + idx * 0.1);
+                    o.stop(now + 0.8 + idx * 0.08);
+                });
+            }
+        }
+
+        // Three.js Core Variables
+        let scene, camera, renderer;
+        let targets = []; // Active targets
+        let particles = []; // Destruction particles
+        let lasers = []; // Laser visual rays
+        let warzoneEmbers = []; // Floating warzone fire particles
+        let lights = {}; // Spotlights and scene flashes
+        let trainingWall; // Standard background reference wall
+        let wallGrid; // Tactical wall grid
+        let weaponGroup; // 3D rifle model locked to the camera view
+        let weaponRecoil = 0; // Current magnitude of kick-back animation
+        const weaponBasePos = new THREE.Vector3(0.35, -0.32, -0.75); // Gun offset relative to Camera
+        const weaponBaseRot = new THREE.Euler(-0.02, -0.12, 0.05);  // Gun rotation relative to Camera
+
+        const arenaSize = { width: 34, height: 18, depth: 45 };
+
+        // Dynamic targets/wall position setup
+        function getTargetZ() {
+            // Sniper/No-Scope mode moves targets far back to 40 meters
+            return (CONFIG.weaponType === 'sniper' || CONFIG.weaponType === 'noscope') ? -39 : -14;
+        }
+
+        function initThreeScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0505);
+            scene.fog = new THREE.FogExp2(0x0a0505, 0.018); // Default fog density
+
+            camera = new THREE.PerspectiveCamera(75, dom.canvasContainer.clientWidth / dom.canvasContainer.clientHeight, 0.1, 1000);
+            
+            // Set WebGL Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(dom.canvasContainer.clientWidth, dom.canvasContainer.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            dom.canvasContainer.appendChild(renderer.domElement);
+
+            // 修正：先建立 3D 槍枝群組並與相機繫結，確保後續 resetCamera() 呼叫時 weaponGroup 已經存在
+            weaponGroup = new THREE.Group();
+            camera.add(weaponGroup);
+            scene.add(camera);
+
+            resetCamera();
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x271313, 0.95);
+            scene.add(ambientLight);
+
+            lights.mainLight = new THREE.DirectionalLight(0xf43f5e, 1.4);
+            lights.mainLight.position.set(0, 15, 10);
+            lights.mainLight.castShadow = true;
+            scene.add(lights.mainLight);
+
+            // Sweeping warning warzone searchlight
+            lights.searchlight = new THREE.SpotLight(0xf59e0b, 5, 100, Math.PI / 8, 0.4, 0.8);
+            lights.searchlight.position.set(0, 18, 0);
+            scene.add(lights.searchlight);
+
+            // Flashes upon hits or misses
+            lights.flashLight = new THREE.PointLight(0xffffff, 0, 80);
+            lights.flashLight.position.set(0, 0, -5);
+            scene.add(lights.flashLight);
+
+            // Build Battlefield Environment
+            buildBattlefield();
+
+            // Create procedural 3D weapon base
+            buildDynamicWeapon();
+
+            // Distribute embers / battlefield ashes
+            buildWarzoneEmbers();
+
+            // Register Resize handler
+            window.addEventListener('resize', onWindowResize);
+
+            // Hide initial loader
+            dom.loader.classList.add('hidden');
+        }
+
+        function resetCamera() {
+            camera.position.set(0, 0, 15);
+            camera.rotation.set(0, 0, 0);
+            camera.fov = 75;
+            camera.updateProjectionMatrix();
+            cameraPitch = 0;
+            cameraYaw = 0;
+            toggleScope(false); // Make sure unscoped by default
+        }
+
+        function buildBattlefield() {
+            // Ground Grid
+            const gridHelper = new THREE.GridHelper(100, 40, 0xe11d48, 0x221c1c);
+            gridHelper.position.y = -6;
+            scene.add(gridHelper);
+
+            // Concrete Floor
+            const floorGeo = new THREE.PlaneGeometry(160, 160);
+            const floorMat = new THREE.MeshStandardMaterial({ 
+                color: 0x110909, 
+                roughness: 0.9,
+                metalness: 0.2
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = -6.02;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Background Target Concrete Wall (will dynamically translate based on weapon type)
+            const wallGeo = new THREE.PlaneGeometry(arenaSize.width + 10, arenaSize.height + 5);
+            const wallMat = new THREE.MeshStandardMaterial({
+                color: 0x191616, 
+                roughness: 0.95,
+                metalness: 0.1
+            });
+            trainingWall = new THREE.Mesh(wallGeo, wallMat);
+            trainingWall.position.set(0, 1, -15);
+            trainingWall.receiveShadow = true;
+            scene.add(trainingWall);
+
+            // Industrial Concrete Grid on Wall
+            wallGrid = new THREE.GridHelper(45, 12, 0xd03030, 0x1a0a0a);
+            wallGrid.rotation.x = Math.PI / 2;
+            wallGrid.position.set(0, 1, -14.95);
+            scene.add(wallGrid);
+
+            // Concrete structural columns
+            for (let i = -3; i <= 3; i++) {
+                if (i === 0) continue;
+                const zPos = i * 10;
+
+                const columnGeo = new THREE.BoxGeometry(2.5, 18, 2.5);
+                const columnMat = new THREE.MeshStandardMaterial({ color: 0x242020, roughness: 0.9 });
+                
+                const leftPillar = new THREE.Mesh(columnGeo, columnMat);
+                leftPillar.position.set(-17, 3, zPos);
+                leftPillar.castShadow = true;
+                leftPillar.receiveShadow = true;
+                scene.add(leftPillar);
+
+                const rightPillar = leftPillar.clone();
+                rightPillar.position.x = 17;
+                scene.add(rightPillar);
+
+                // Neon glowing alert cables on the columns
+                const neonCableGeo = new THREE.CylinderGeometry(0.05, 0.05, 18, 4);
+                const neonCableMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
+                
+                const leftCable = new THREE.Mesh(neonCableGeo, neonCableMat);
+                leftCable.position.set(-15.7, 3, zPos);
+                scene.add(leftCable);
+
+                const rightCable = leftCable.clone();
+                rightCable.position.x = 15.7;
+                scene.add(rightCable);
+            }
+
+            // Front Barricades/Sandbags for depth
+            const barrierGeo = new THREE.BoxGeometry(6, 3.2, 2.2);
+            const barrierMat = new THREE.MeshStandardMaterial({ color: 0x3d3737, roughness: 0.8 });
+            
+            const leftBarrier = new THREE.Mesh(barrierGeo, barrierMat);
+            leftBarrier.position.set(-9, -4.4, 4);
+            leftBarrier.rotation.y = 0.45;
+            leftBarrier.castShadow = true;
+            leftBarrier.receiveShadow = true;
+            scene.add(leftBarrier);
+
+            const rightBarrier = leftBarrier.clone();
+            rightBarrier.position.set(9, -4.4, 4);
+            rightBarrier.rotation.y = -0.45;
+            scene.add(rightBarrier);
+        }
+
+        // Assemble Weapon dynamically depending on whether user chooses Rifle or Sniper configuration
+        function buildDynamicWeapon() {
+            // Clear current weapon group children
+            while(weaponGroup.children.length > 0) {
+                const child = weaponGroup.children[0];
+                weaponGroup.remove(child);
+            }
+
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1717, roughness: 0.35, metalness: 0.85 });
+            const polymerMat = new THREE.MeshStandardMaterial({ color: 0x221f1f, roughness: 0.65 });
+            const darkSteelMat = new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.25, metalness: 0.95 });
+
+            // 1. Rifle Main Body (receiver)
+            const receiverGeo = new THREE.BoxGeometry(0.06, 0.09, 0.45);
+            const receiver = new THREE.Mesh(receiverGeo, metalMat);
+            weaponGroup.add(receiver);
+
+            // 2. Magazines (curved)
+            const magGeo = new THREE.BoxGeometry(0.045, 0.16, 0.055);
+            const magazine = new THREE.Mesh(magGeo, polymerMat);
+            magazine.position.set(0, -0.11, -0.05);
+            magazine.rotation.x = 0.22;
+            weaponGroup.add(magazine);
+
+            if (CONFIG.weaponType === 'rifle') {
+                // Assault Rifle barrel configuration
+                const barrelGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.35, 8);
+                const barrel = new THREE.Mesh(barrelGeo, darkSteelMat);
+                barrel.rotation.x = Math.PI / 2;
+                barrel.position.set(0, 0.01, -0.32);
+                weaponGroup.add(barrel);
+
+                // Small tactical holo optic
+                const opticGeo = new THREE.BoxGeometry(0.035, 0.035, 0.12);
+                const optic = new THREE.Mesh(opticGeo, metalMat);
+                optic.position.set(0, 0.065, -0.05);
+                weaponGroup.add(optic);
+
+                const glassGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.01, 8);
+                const opticGlassMat = new THREE.MeshBasicMaterial({ color: CONFIG.crosshair.color });
+                const glass = new THREE.Mesh(glassGeo, opticGlassMat);
+                glass.rotation.x = Math.PI / 2;
+                glass.position.set(0, 0.065, -0.11);
+                glass.name = "scopeLens";
+                weaponGroup.add(glass);
+
+            } else {
+                // SNIPER RIFLE - Extends barrel & mounts massive optic scope
+                // Extremely long tactical sniper barrel
+                const barrelGeo = new THREE.CylinderGeometry(0.018, 0.014, 0.65, 8);
+                const barrel = new THREE.Mesh(barrelGeo, darkSteelMat);
+                barrel.rotation.x = Math.PI / 2;
+                barrel.position.set(0, 0.01, -0.48);
+                weaponGroup.add(barrel);
+
+                // Heavy barrel muzzle break / silencer attachment
+                const suppressorGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.16, 8);
+                const suppressor = new THREE.Mesh(suppressorGeo, darkSteelMat);
+                suppressor.rotation.x = Math.PI / 2;
+                suppressor.position.set(0, 0.01, -0.85);
+                weaponGroup.add(suppressor);
+
+                // Heavy Scope system (Double lens telescope block)
+                const scopeBaseGeo = new THREE.BoxGeometry(0.03, 0.05, 0.04);
+                const scopeBase = new THREE.Mesh(scopeBaseGeo, metalMat);
+                scopeBase.position.set(0, 0.07, -0.05);
+                weaponGroup.add(scopeBase);
+
+                // Scope barrel cylinder
+                const scopeCylinderGeo = new THREE.CylinderGeometry(0.026, 0.022, 0.28, 12);
+                const scopeCylinder = new THREE.Mesh(scopeCylinderGeo, metalMat);
+                scopeCylinder.rotation.x = Math.PI / 2;
+                scopeCylinder.position.set(0, 0.1, -0.05);
+                weaponGroup.add(scopeCylinder);
+
+                // Glass lens element (larger scope optic)
+                const glassGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.01, 12);
+                // In No-Scope mode, the optic glass remains dark/dimmed
+                const glassColor = (CONFIG.weaponType === 'noscope') ? 0x221111 : CONFIG.crosshair.color;
+                const opticGlassMat = new THREE.MeshBasicMaterial({ color: glassColor });
+                const glass = new THREE.Mesh(glassGeo, opticGlassMat);
+                glass.rotation.x = Math.PI / 2;
+                glass.position.set(0, 0.1, -0.19);
+                glass.name = "scopeLens";
+                weaponGroup.add(glass);
+            }
+
+            // 5. Tactical side rail neon strip
+            const railGeo = new THREE.BoxGeometry(0.008, 0.008, 0.32);
+            const railGlowColor = (CONFIG.weaponType === 'noscope') ? 0x221111 : CONFIG.crosshair.color;
+            const railGlowMat = new THREE.MeshBasicMaterial({ color: railGlowColor });
+            const railGlow = new THREE.Mesh(railGeo, railGlowMat);
+            railGlow.position.set(0, 0.042, -0.2);
+            railGlow.name = "neonRail";
+            weaponGroup.add(railGlow);
+
+            // Lock position relative to camera perspective
+            weaponGroup.position.copy(weaponBasePos);
+            weaponGroup.rotation.copy(weaponBaseRot);
+        }
+
+        // Dynamic transition for battlefield configurations when shifting weapon sets
+        function updateBattlefieldRange() {
+            const destZ = getTargetZ();
+            
+            // Instantly clear targets and move wall limits
+            cleanAllTargets();
+            
+            // Wall coordinate transition
+            trainingWall.position.z = destZ - 1.0;
+            wallGrid.position.z = destZ - 0.95;
+
+            // Adjust searchlight focus Z dynamically
+            if (lights.searchlight) {
+                lights.searchlight.target = trainingWall;
+            }
+
+            // Set atmospheric fog density (Sniper mode requires clearer atmosphere to see 40m away)
+            if (scene) {
+                scene.fog.density = (CONFIG.weaponType === 'rifle') ? 0.018 : 0.008;
+            }
+        }
+
+        function buildWarzoneEmbers() {
+            const particleCount = 100;
+            const emberGeo = new THREE.BoxGeometry(0.09, 0.09, 0.09);
+            const colors = [0xf43f5e, 0xf59e0b, 0x44403c];
+            
+            for (let i = 0; i < particleCount; i++) {
+                const mat = new THREE.MeshBasicMaterial({
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    transparent: true,
+                    opacity: 0.35 + Math.random() * 0.45
+                });
+                const mesh = new THREE.Mesh(emberGeo, mat);
+                // Scatter across entire firing arena bounds
+                mesh.position.set(
+                    (Math.random() - 0.5) * 44,
+                    -5.5 + Math.random() * 18,
+                    (Math.random() - 0.5) * 55
+                );
+                scene.add(mesh);
+                warzoneEmbers.push({
+                    mesh: mesh,
+                    velocity: new THREE.Vector3(
+                        (Math.random() - 0.5) * 1.5,
+                        0.9 + Math.random() * 2.2, // Move upwards
+                        (Math.random() - 0.5) * 1.5
+                    ),
+                    rotSpeed: (Math.random() - 0.5) * 2.5
+                });
+            }
+        }
+
+        function updateWarzoneEmbers() {
+            warzoneEmbers.forEach(p => {
+                p.mesh.position.addScaledVector(p.velocity, 0.016);
+                p.mesh.rotation.x += p.rotSpeed * 0.016;
+                p.mesh.rotation.z += p.rotSpeed * 0.016;
+                
+                if (p.mesh.position.y > 15) {
+                    p.mesh.position.y = -5.8;
+                    p.mesh.position.x = (Math.random() - 0.5) * 44;
+                    p.mesh.position.z = (Math.random() - 0.5) * 55;
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = dom.canvasContainer.clientWidth / dom.canvasContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(dom.canvasContainer.clientWidth, dom.canvasContainer.clientHeight);
+        }
+
+        // Pointer Lock Mechanics
+        let cameraPitch = 0;
+        let cameraYaw = 0;
+        const lookLimit = Math.PI / 2.5;
+
+        document.addEventListener('pointerlockchange', onPointerLockChange);
+
+        function onPointerLockChange() {
+            if (document.pointerLockElement === renderer.domElement) {
+                dom.lockPrompt.classList.add('hidden');
+                dom.pauseMenu.classList.add('hidden');
+                STATE.isPaused = false;
+                resumeGameTimer();
+            } else {
+                if (STATE.isActive && CONFIG.controlType === 'lock') {
+                    pauseGame();
+                }
+            }
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (STATE.isPaused || !STATE.isActive) return;
+
+            if (CONFIG.controlType === 'lock' && document.pointerLockElement === renderer.domElement) {
+                // When scoped in, reduce sensitivity substantially for precision alignment
+                const zoomFactor = STATE.isScoped ? 0.22 : 1.0;
+                const sensMultiplier = 0.0008 * CONFIG.sensitivity * zoomFactor;
+                
+                cameraYaw -= e.movementX * sensMultiplier;
+                cameraPitch -= e.movementY * sensMultiplier;
+
+                cameraPitch = Math.max(-lookLimit, Math.min(lookLimit, cameraPitch));
+
+                camera.rotation.order = 'YXZ';
+                camera.rotation.set(cameraPitch, cameraYaw, 0);
+            }
+        });
+
+        // Toggle Aim Down Sights (ADS) for Sniper Scope
+        function toggleScope(forceState) {
+            if (CONFIG.weaponType !== 'sniper') {
+                STATE.isScoped = false;
+                dom.sniperScopeOverlay.classList.add('hidden');
+                // 修正：加入防禦性判斷確保 weaponGroup 存在
+                if (weaponGroup) {
+                    weaponGroup.visible = true;
+                }
+                // Keep standard HUD crosshair state based on current configuration
+                if (CONFIG.controlType === 'lock' && CONFIG.weaponType !== 'noscope') {
+                    dom.fpsCrosshair.classList.remove('hidden');
+                }
+                return;
+            }
+
+            const targetState = (forceState !== undefined) ? forceState : !STATE.isScoped;
+            STATE.isScoped = targetState;
+
+            if (STATE.isScoped) {
+                // Zoom FOV to 15 degrees
+                camera.fov = 15;
+                camera.updateProjectionMatrix();
+                
+                playSound('zoom');
+                dom.sniperScopeOverlay.classList.remove('hidden');
+                
+                if (CONFIG.controlType === 'lock' && CONFIG.weaponType !== 'noscope') {
+                    dom.fpsCrosshair.classList.remove('hidden'); // 放大時不隱藏十字準星
+                } else {
+                    dom.fpsCrosshair.classList.add('hidden');
+                }
+                
+                // 修正：加入防禦性判斷確保 weaponGroup 存在
+                if (weaponGroup) {
+                    weaponGroup.visible = false; // Hide 3D mesh model to avoid screen-clip
+                }
+            } else {
+                // Unscope
+                camera.fov = 75;
+                camera.updateProjectionMatrix();
+                
+                dom.sniperScopeOverlay.classList.add('hidden');
+                if (CONFIG.controlType === 'lock' && CONFIG.weaponType !== 'noscope') {
+                    dom.fpsCrosshair.classList.remove('hidden');
+                }
+                // 修正：加入防禦性判斷確保 weaponGroup 存在
+                if (weaponGroup) {
+                    weaponGroup.visible = true;
+                }
+            }
+        }
+
+        // Trigger ADS toggle on Right Click press
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 2) { // Right Click
+                if (STATE.isActive && !STATE.isPaused && CONFIG.weaponType === 'sniper') {
+                    toggleScope();
+                }
+            }
+        });
+
+        let trackingTargetVelocity = new THREE.Vector3();
+
+        function spawnTarget() {
+            const id = Date.now() + Math.random().toString(36).substr(2, 5);
+            let x, y, z, radius;
+            const currentZ = getTargetZ();
+            
+            if (CONFIG.gameMode === 'tracking') {
+                radius = 1.3;
+                x = 0;
+                y = 1;
+                z = currentZ;
+                trackingTargetVelocity.set(
+                    (Math.random() - 0.5) * 14,
+                    (Math.random() - 0.5) * 10,
+                    0
+                );
+            } else {
+                radius = CONFIG.gameMode === 'classic' ? (0.6 + Math.random() * 0.7) : 1.0;
+                
+                // Spawn within target bounds (front of concrete wall)
+                x = (Math.random() - 0.5) * (arenaSize.width - 6);
+                y = (Math.random() - 0.5) * (arenaSize.height - 5) + 1;
+                z = currentZ;
+            }
+
+            // Neon glowing spheres matching battlefield palette
+            let sphereColor = 0xf43f5e; // Neon pink
+            if (CONFIG.gameMode === 'gridshot') sphereColor = 0xf59e0b; // Amber orange
+            if (CONFIG.gameMode === 'tracking') sphereColor = 0x10b981; // Green drone
+
+            const sphereGeo = new THREE.SphereGeometry(radius, 32, 32);
+            const sphereMat = new THREE.MeshStandardMaterial({
+                color: sphereColor,
+                emissive: sphereColor,
+                emissiveIntensity: 0.9,
+                roughness: 0.1,
+                metalness: 0.1
+            });
+
+            const mesh = new THREE.Mesh(sphereGeo, sphereMat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            
+            scene.add(mesh);
+
+            const newTarget = {
+                id: id,
+                mesh: mesh,
+                spawnTime: Date.now(),
+                mode: CONFIG.gameMode,
+                radius: radius,
+                scale: 0.1, // Smooth pop scaling
+                shrinkState: false,
+                maxAge: CONFIG.gameMode === 'classic' ? 2000 : 99999999, // Fast shrinking for classic mode
+                baseColor: sphereColor
+            };
+
+            targets.push(newTarget);
+            STATE.spawnTimes.push(Date.now());
+        }
+
+        // *** CORE AUTO-REPLACEMENT SYSTEM ***
+        // Ensures target quota is immediately maintained in case any target disappears.
+        function maintainTargetCount() {
+            if (!STATE.isActive || STATE.isPaused) return;
+
+            // Define target density constraints based on selected mode
+            let targetQuota = 3; // Classic & Gridshot always maintain 3 targets
+            if (CONFIG.gameMode === 'tracking') targetQuota = 1; // Tracking keeps exactly 1 target
+
+            while (targets.length < targetQuota) {
+                spawnTarget();
+            }
+        }
+
+        function cleanAllTargets() {
+            targets.forEach(t => {
+                scene.remove(t.mesh);
+                t.mesh.geometry.dispose();
+                t.mesh.material.dispose();
+            });
+            targets = [];
+        }
+
+        // Shooting action triggers
+        document.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // Left Click only
+            if (STATE.isPaused || !STATE.isActive) return;
+
+            if (CONFIG.controlType === 'lock') {
+                if (document.pointerLockElement !== renderer.domElement) return;
+                performRaycast(new THREE.Vector2(0, 0));
+            } else {
+                const rect = renderer.domElement.getBoundingClientRect();
+                const mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                const mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                performRaycast(new THREE.Vector2(mouseX, mouseY));
+            }
+        });
+
+        function performRaycast(mouseCoords) {
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouseCoords, camera);
+
+            const targetMeshes = targets.map(t => t.mesh);
+            const intersects = raycaster.intersectObjects(targetMeshes);
+
+            // Trigger gun audio
+            playSound('shoot');
+            STATE.totalClicks++;
+
+            // Set weapon recoil kick intensity
+            weaponRecoil = CONFIG.weaponType === 'rifle' ? 0.18 : 0.38; // Sniper kicks back much harder!
+
+            // Laser shot visual
+            createLaserTrace(raycaster.ray);
+
+            if (intersects.length > 0) {
+                const hitMesh = intersects[0].object;
+                const targetObj = targets.find(t => t.mesh === hitMesh);
+                
+                if (targetObj) {
+                    processHit(targetObj, intersects[0].point);
+                }
+            } else {
+                processMiss();
+            }
+
+            // Immediately invoke target refill mechanics to replace shot sphere in real-time
+            maintainTargetCount();
+            updateHUD();
+        }
+
+        function processHit(target, point) {
+            const hitTime = Date.now();
+            STATE.hits++;
+            STATE.hitTimes.push(hitTime);
+            
+            const reaction = hitTime - target.spawnTime;
+            STATE.reactionTimes.push(reaction);
+
+            if (CONFIG.gameMode === 'classic') {
+                const timeLeftPercent = Math.max(0, 1 - (reaction / target.maxAge));
+                const points = Math.round(60 + timeLeftPercent * 90);
+                STATE.score += points;
+            } else if (CONFIG.gameMode === 'gridshot') {
+                STATE.score += 100;
+            }
+
+            playSound('hit');
+            triggerExplosion(point, target.baseColor);
+
+            // Flash scene point light vivid green
+            lights.flashLight.color.setHex(0x10b981);
+            lights.flashLight.intensity = 3.5;
+
+            // Remove mesh instantly
+            scene.remove(target.mesh);
+            target.mesh.geometry.dispose();
+            target.mesh.material.dispose();
+            targets = targets.filter(t => t.id !== target.id);
+        }
+
+        function processMiss() {
+            STATE.misses++;
+            if (CONFIG.gameMode === 'classic') {
+                STATE.score = Math.max(0, STATE.score - 20);
+            } else if (CONFIG.gameMode === 'gridshot') {
+                STATE.score = Math.max(0, STATE.score - 10);
+            }
+            playSound('miss');
+
+            // Flash light red
+            lights.flashLight.color.setHex(0xef4444);
+            lights.flashLight.intensity = 3.5;
+        }
+
+        // Shot visualizations
+        function createLaserTrace(ray) {
+            const origin = new THREE.Vector3().copy(camera.position);
+            
+            // Offset starting coordinates to match gun nozzle muzzle
+            const barrelZOffset = (CONFIG.weaponType === 'rifle') ? -0.9 : -1.3;
+            const barrelOffset = new THREE.Vector3(0.38, -0.28, barrelZOffset);
+            barrelOffset.applyQuaternion(camera.quaternion);
+            origin.add(barrelOffset);
+
+            const travelDistance = Math.abs(getTargetZ()) + 10;
+            const direction = ray.direction.clone().multiplyScalar(travelDistance);
+            const endpoint = new THREE.Vector3().copy(origin).add(direction);
+
+            const material = new THREE.LineBasicMaterial({
+                color: (CONFIG.weaponType === 'noscope') ? 0xf43f5e : CONFIG.crosshair.color,
+                transparent: true,
+                opacity: 1.0,
+                blending: THREE.AdditiveBlending
+            });
+
+            const points = [origin, endpoint];
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geometry, material);
+
+            scene.add(line);
+            lasers.push({
+                line: line,
+                material: material,
+                opacity: 1.0,
+                decaySpeed: 14.0 // Fades out ultra-fast (70ms)
+            });
+        }
+
+        function triggerExplosion(point, colorHex) {
+            const particleCount = 16;
+            const size = 0.12 + Math.random() * 0.12;
+            const geo = new THREE.BoxGeometry(size, size, size);
+            const mat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 1.0
+            });
+
+            for (let i = 0; i < particleCount; i++) {
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(point);
+                
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 16,
+                    (Math.random() - 0.5) * 16,
+                    (Math.random() - 0.5) * 16
+                );
+
+                scene.add(mesh);
+                particles.push({
+                    mesh: mesh,
+                    material: mat,
+                    velocity: velocity,
+                    gravity: -0.16,
+                    opacity: 1.0,
+                    life: 1.0,
+                    decaySpeed: 1.6 + Math.random() * 1.6
+                });
+            }
+        }
+
+        // Core game controls
+        function startGame() {
+            STATE.score = 0;
+            STATE.hits = 0;
+            STATE.misses = 0;
+            STATE.totalClicks = 0;
+            STATE.timeRemaining = CONFIG.gameDuration;
+            STATE.isActive = true;
+            STATE.isPaused = false;
+            STATE.startTime = Date.now();
+            STATE.spawnTimes = [];
+            STATE.hitTimes = [];
+            STATE.reactionTimes = [];
+            
+            cleanAllTargets();
+            particles.forEach(p => scene.remove(p.mesh));
+            particles = [];
+            lasers.forEach(l => scene.remove(l.line));
+            lasers = [];
+
+            resetCamera();
+            buildDynamicWeapon();
+            updateBattlefieldRange();
+
+            dom.mainMenu.classList.add('hidden');
+            dom.endMenu.classList.add('hidden');
+            dom.pauseMenu.classList.add('hidden');
+            dom.hud.classList.remove('opacity-0');
+
+            // Force unscope at start
+            toggleScope(false);
+
+            if (CONFIG.controlType === 'lock') {
+                dom.lockPrompt.classList.remove('hidden');
+                
+                // No-Scope mode: completely hide the HUD crosshair
+                if (CONFIG.weaponType === 'noscope') {
+                    dom.fpsCrosshair.classList.add('hidden');
+                    dom.lockPromptText.innerHTML = `
+                        進入第一人稱作戰。移動滑鼠拉轉視角，左鍵擊碎球體！<br>
+                        <span class="text-rose-500 font-bold">【無瞄準點射擊訓練】已啟用：畫面無準心，考驗螢幕中心肌肉記憶！</span><br>
+                        在任何時候按 <kbd class="px-1.5 py-0.5 bg-neutral-800 rounded font-mono text-[10px] text-rose-400 border border-neutral-700">ESC</kbd> 即可解鎖游標並暫停。
+                    `;
+                } else {
+                    dom.fpsCrosshair.classList.remove('hidden');
+                    dom.lockPromptText.innerHTML = `
+                        進入第一人稱作戰。移動滑鼠拉轉視角，左鍵擊碎球體！<br>
+                        ${CONFIG.weaponType === 'sniper' ? '<span class="text-sky-400 font-bold">【狙擊步槍特訓】已啟用：滑鼠右鍵點擊可開鏡瞄準(ADS)！</span><br>' : ''}
+                        在任何時候按 <kbd class="px-1.5 py-0.5 bg-neutral-800 rounded font-mono text-[10px] text-rose-400 border border-neutral-700">ESC</kbd> 即可解鎖游標並暫停。
+                    `;
+                }
+            } else {
+                dom.lockPrompt.classList.add('hidden');
+                dom.fpsCrosshair.classList.add('hidden');
+                resumeGameTimer();
+            }
+
+            // Populate initial target layouts
+            maintainTargetCount();
+            updateHUD();
+            playSound('countdown');
+        }
+
+        function resumeGameTimer() {
+            if (STATE.timerInterval) clearInterval(STATE.timerInterval);
+            
+            STATE.timerInterval = setInterval(() => {
+                if (STATE.isPaused) return;
+                
+                STATE.timeRemaining -= 0.1;
+                if (STATE.timeRemaining <= 0) {
+                    STATE.timeRemaining = 0;
+                    endGame();
+                }
+                updateHUD();
+            }, 100);
+        }
+
+        function pauseGame() {
+            STATE.isPaused = true;
+            clearInterval(STATE.timerInterval);
+            dom.pauseMenu.classList.remove('hidden');
+            document.exitPointerLock();
+        }
+
+        function resumeGame() {
+            STATE.isPaused = false;
+            if (CONFIG.controlType === 'lock') {
+                dom.lockPrompt.classList.remove('hidden');
+            } else {
+                resumeGameTimer();
+                dom.pauseMenu.classList.add('hidden');
+            }
+        }
+
+        function endGame() {
+            STATE.isActive = false;
+            clearInterval(STATE.timerInterval);
+            document.exitPointerLock();
+            dom.hud.classList.add('opacity-0');
+            dom.fpsCrosshair.classList.add('hidden');
+            toggleScope(false); // Restore normal FOV
+
+            playSound('gameover');
+            displayEndReport();
+        }
+
+        function displayEndReport() {
+            dom.endMenu.classList.remove('hidden');
+            dom.endModeName.innerText = `訓練戰區：${getModeDisplayName(CONFIG.gameMode)} (${getWeaponDisplayName(CONFIG.weaponType)})`;
+            dom.endScore.innerText = STATE.score;
+
+            const accuracy = STATE.totalClicks > 0 ? Math.round((STATE.hits / STATE.totalClicks) * 100) : 0;
+            dom.endAccuracy.innerText = `${accuracy}%`;
+            dom.endHitsMisses.innerText = `${STATE.hits} 次命中 / ${STATE.misses} 次空槍`;
+
+            const kps = (STATE.hits / CONFIG.gameDuration).toFixed(2);
+            dom.endKps.innerText = `${kps} KPS`;
+
+            const avgReaction = STATE.reactionTimes.length > 0 
+                ? Math.round(STATE.reactionTimes.reduce((a, b) => a + b, 0) / STATE.reactionTimes.length) 
+                : 0;
+            dom.endReaction.innerText = CONFIG.gameMode === 'tracking' ? 'N/A (持續鎖定)' : `${avgReaction} 毫秒`;
+
+            let rank = 'C';
+            if (CONFIG.gameMode === 'tracking') {
+                if (STATE.score >= 12000) rank = 'SS';
+                else if (STATE.score >= 9000) rank = 'S';
+                else if (STATE.score >= 6000) rank = 'A';
+                else if (STATE.score >= 3000) rank = 'B';
+            } else {
+                if (STATE.score >= 5000 && accuracy >= 88) rank = 'SS';
+                else if (STATE.score >= 4000) rank = 'S';
+                else if (STATE.score >= 3000) rank = 'A';
+                else if (STATE.score >= 2000) rank = 'B';
+            }
+            dom.endRank.innerText = rank;
+
+            dom.endRank.className = "text-5xl md:text-6xl font-black font-mono tracking-tighter ";
+            if (rank.includes('S')) dom.endRank.classList.add('text-rose-500', 'animate-pulse');
+            else if (rank === 'A') dom.endRank.classList.add('text-amber-500');
+            else if (rank === 'B') dom.endRank.classList.add('text-sky-500');
+            else dom.endRank.classList.add('text-zinc-500');
+        }
+
+        function updateHUD() {
+            dom.hudScore.innerText = String(STATE.score).padStart(4, '0');
+            dom.hudHits.innerText = STATE.hits;
+            
+            const accuracy = STATE.totalClicks > 0 ? Math.round((STATE.hits / STATE.totalClicks) * 100) : 100;
+            dom.hudAccuracy.innerText = `${accuracy}%`;
+            dom.hudTimer.innerText = `${STATE.timeRemaining.toFixed(1)}s`;
+        }
+
+        function getModeDisplayName(mode) {
+            if (mode === 'classic') return '戰地常規 (Classic)';
+            if (mode === 'gridshot') return '極速拉槍 (Gridshot)';
+            if (mode === 'tracking') return '防空追蹤 (Tracking)';
+            return '作戰演習';
+        }
+
+        function getWeaponDisplayName(wType) {
+            if (wType === 'rifle') return '突擊步槍 (中近程)';
+            if (wType === 'sniper') return '重型狙擊槍 (遠程開鏡)';
+            if (wType === 'noscope') return '狙擊槍 (無瞄準盲射)';
+            return '一般武裝';
+        }
+
+        // Configuration Panel Handlers
+        dom.modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                dom.modeBtns.forEach(b => {
+                    b.classList.remove('border-rose-500', 'bg-rose-950/30');
+                    b.classList.add('border-neutral-850', 'bg-neutral-900/40');
+                    b.querySelector('div').firstElementChild.className = "font-bold text-sm text-neutral-300";
+                });
+                
+                btn.classList.remove('border-neutral-850', 'bg-neutral-900/40');
+                btn.classList.add('border-rose-500', 'bg-rose-950/30');
+                btn.querySelector('div').firstElementChild.className = "font-bold text-sm text-white";
+
+                if (btn.id === 'mode-classic') CONFIG.gameMode = 'classic';
+                if (btn.id === 'mode-gridshot') CONFIG.gameMode = 'gridshot';
+                if (btn.id === 'mode-tracking') CONFIG.gameMode = 'tracking';
+
+                dom.hudModeName.innerText = getModeDisplayName(CONFIG.gameMode);
+            });
+        });
+
+        // Controller Switching
+        dom.controlCursor.addEventListener('click', () => {
+            CONFIG.controlType = 'cursor';
+            dom.controlCursor.className = "py-1.5 px-2 text-xs rounded-lg font-bold border border-rose-500 bg-rose-600/20 text-white transition";
+            dom.controlLock.className = "py-1.5 px-2 text-xs rounded-lg font-bold border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition flex items-center justify-center gap-1";
+            dom.hudControlType.innerText = "控制：游標點擊";
+        });
+
+        dom.controlLock.addEventListener('click', () => {
+            CONFIG.controlType = 'lock';
+            dom.controlLock.className = "py-1.5 px-2 text-xs rounded-lg font-bold border border-rose-500 bg-rose-600/20 text-white transition flex items-center justify-center gap-1";
+            dom.controlCursor.className = "py-1.5 px-2 text-xs rounded-lg font-bold border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition";
+            dom.hudControlType.innerText = "控制：第一人稱 FPS";
+        });
+
+        dom.inputSens.addEventListener('input', (e) => {
+            CONFIG.sensitivity = parseFloat(e.target.value).toFixed(1);
+            dom.sensVal.innerText = CONFIG.sensitivity;
+        });
+
+        // NEW Weapon Type Handler
+        dom.weaponType.addEventListener('change', (e) => {
+            CONFIG.weaponType = e.target.value;
+            
+            if (CONFIG.weaponType === 'rifle') {
+                dom.weaponHint.innerText = "💡 **步槍模式**：牆面拉回 15m。最適合中短程常規與拉槍速射。";
+            } else if (CONFIG.weaponType === 'sniper') {
+                dom.weaponHint.innerText = "💡 **開鏡狙擊**：牆面拉遠至 40m。滑鼠右鍵點擊可開高倍率瞄準鏡！";
+            } else {
+                dom.weaponHint.innerText = "💡 **盲射特訓**：牆面拉遠至 40m。無任何準心點，鍛煉頂級的肌肉中心記憶！";
+            }
+
+            // Immediately rebuild weapon 3D layout to display weapon swap instantly
+            if (weaponGroup) {
+                buildDynamicWeapon();
+                updateBattlefieldRange();
+            }
+        });
+
+        dom.crossColorBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                dom.crossColorBtns.forEach(b => b.classList.remove('border-2', 'border-white'));
+                btn.classList.add('border-2', 'border-white');
+                CONFIG.crosshair.color = btn.getAttribute('data-color');
+                applyCrosshairSettings();
+            });
+        });
+
+        dom.crossSizeSelect.addEventListener('change', (e) => {
+            CONFIG.crosshair.size = e.target.value;
+            applyCrosshairSettings();
+        });
+
+        function applyCrosshairSettings() {
+            const svg = dom.crosshairSvg;
+            const dot = document.getElementById('crosshair-dot-el');
+            const lines = [
+                document.getElementById('crosshair-top'),
+                document.getElementById('crosshair-bottom'),
+                document.getElementById('crosshair-left'),
+                document.getElementById('crosshair-right')
+            ];
+
+            dot.setAttribute('fill', CONFIG.crosshair.color);
+            lines.forEach(l => l.setAttribute('stroke', CONFIG.crosshair.color));
+
+            if (CONFIG.crosshair.size === 'small') {
+                lines.forEach(l => l.style.display = 'block');
+                dot.setAttribute('r', '1.5');
+                lines[0].setAttribute('y1', '6'); lines[0].setAttribute('y2', '12');
+                lines[1].setAttribute('y1', '20'); lines[1].setAttribute('y2', '26');
+                lines[2].setAttribute('x1', '6'); lines[2].setAttribute('x2', '12');
+                lines[3].setAttribute('x1', '20'); lines[3].setAttribute('x2', '26');
+            } else if (CONFIG.crosshair.size === 'medium') {
+                lines.forEach(l => l.style.display = 'block');
+                dot.setAttribute('r', '2.5');
+                lines[0].setAttribute('y1', '4'); lines[0].setAttribute('y2', '12');
+                lines[1].setAttribute('y1', '20'); lines[1].setAttribute('y2', '28');
+                lines[2].setAttribute('x1', '4'); lines[2].setAttribute('x2', '12');
+                lines[3].setAttribute('x1', '20'); lines[3].setAttribute('x2', '28');
+            } else if (CONFIG.crosshair.size === 'large') {
+                lines.forEach(l => l.style.display = 'block');
+                dot.setAttribute('r', '3.5');
+                lines[0].setAttribute('y1', '2'); lines[0].setAttribute('y2', '11');
+                lines[1].setAttribute('y1', '21'); lines[1].setAttribute('y2', '30');
+                lines[2].setAttribute('x1', '2'); lines[2].setAttribute('x2', '11');
+                lines[3].setAttribute('x1', '21'); lines[3].setAttribute('x2', '30');
+            } else if (CONFIG.crosshair.size === 'dot') {
+                lines.forEach(l => l.style.display = 'none');
+                dot.setAttribute('r', '3');
+            }
+
+            // Sync tactical weapon neon color dynamically!
+            if (weaponGroup) {
+                const neonRail = weaponGroup.getObjectByName("neonRail");
+                const scopeLens = weaponGroup.getObjectByName("scopeLens");
+                
+                // Keep rails dark/dimmed for blind-fire
+                const targetColor = (CONFIG.weaponType === 'noscope') ? "#221111" : CONFIG.crosshair.color;
+                if (neonRail) neonRail.material.color.set(targetColor);
+                if (scopeLens) scopeLens.material.color.set(targetColor);
+            }
+        }
+
+        dom.btnStart.addEventListener('click', startGame);
+        dom.btnPause.addEventListener('click', pauseGame);
+        dom.btnResume.addEventListener('click', resumeGame);
+        dom.btnRestartMid.addEventListener('click', startGame);
+        dom.btnQuit.addEventListener('click', () => {
+            STATE.isActive = false;
+            cleanAllTargets();
+            toggleScope(false);
+            dom.pauseMenu.classList.add('hidden');
+            dom.mainMenu.classList.remove('hidden');
+            dom.hud.classList.add('opacity-0');
+        });
+
+        dom.btnRestart.addEventListener('click', startGame);
+        dom.btnHome.addEventListener('click', () => {
+            dom.endMenu.classList.add('hidden');
+            dom.mainMenu.classList.remove('hidden');
+        });
+
+        dom.btnActivateLock.addEventListener('click', () => {
+            renderer.domElement.requestPointerLock();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                if (STATE.isActive && !STATE.isPaused) {
+                    pauseGame();
+                }
+            }
+        });
+
+        // Main Animation frame dispatcher
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = Date.now();
+
+            // Rotational sweeping alarm searchlight
+            if (lights.searchlight) {
+                lights.searchlight.position.x = Math.sin(now * 0.001) * 15;
+                lights.searchlight.position.z = getTargetZ() + Math.cos(now * 0.0008) * 12 + 5;
+            }
+
+            // Hit/Miss flash ambient decay
+            if (lights.flashLight && lights.flashLight.intensity > 0) {
+                lights.flashLight.intensity -= 0.18;
+            }
+
+            // Floating battlefield ashes updates
+            updateWarzoneEmbers();
+
+            // Gun Recoil Spring Back-lerping Animation
+            if (weaponGroup && weaponGroup.visible) {
+                if (weaponRecoil > 0) {
+                    weaponRecoil -= 0.022; // Decay rate
+                    if (weaponRecoil < 0) weaponRecoil = 0;
+                }
+                // Displace local transform based on active weaponRecoil
+                weaponGroup.position.set(
+                    weaponBasePos.x,
+                    weaponBasePos.y + weaponRecoil * 0.3, // Kick slightly upwards
+                    weaponBasePos.z + weaponRecoil * 1.6  // Kick backwards on Z-axis
+                );
+                // Pitch rifle barrel upwards slightly
+                weaponGroup.rotation.set(
+                    weaponBaseRot.x + weaponRecoil * 0.8,
+                    weaponBaseRot.y,
+                    weaponBaseRot.z
+                );
+            }
+
+            // Maintain target density and process existing behaviors
+            if (STATE.isActive && !STATE.isPaused) {
+                
+                // Keep target list full and responsive to instant destructions
+                maintainTargetCount();
+
+                const currentZ = getTargetZ();
+
+                targets.forEach(t => {
+                    // Spawn Pop scale animation
+                    if (t.scale < 1.0) {
+                        t.scale += 0.14;
+                        t.mesh.scale.set(t.scale, t.scale, t.scale);
+                    }
+
+                    // Classic Targets Shrinkage over limited lifetimes
+                    if (t.mode === 'classic') {
+                        const elapsed = now - t.spawnTime;
+                        if (elapsed >= t.maxAge - 350) {
+                            const shrinkVal = Math.max(0, 1.0 - (elapsed - (t.maxAge - 350)) / 350);
+                            t.mesh.scale.set(shrinkVal, shrinkVal, shrinkVal);
+                        }
+
+                        if (elapsed >= t.maxAge) {
+                            // Shrinked target removed
+                            scene.remove(t.mesh);
+                            t.mesh.geometry.dispose();
+                            t.mesh.material.dispose();
+                            targets = targets.filter(item => item.id !== t.id);
+                            
+                            STATE.misses++;
+                            playSound('miss');
+
+                            // Trigger immediate replacement on the next line
+                            maintainTargetCount();
+                        }
+                    }
+
+                    // Continuous sinuous movement for Aerial drone targets in Tracking
+                    if (t.mode === 'tracking') {
+                        t.mesh.position.addScaledVector(trackingTargetVelocity, 0.016);
+
+                        const xLim = (arenaSize.width - 6) / 2;
+                        const yLim = (arenaSize.height - 5) / 2;
+
+                        if (Math.abs(t.mesh.position.x) > xLim) {
+                            t.mesh.position.x = Math.sign(t.mesh.position.x) * xLim;
+                            trackingTargetVelocity.x *= -1;
+                        }
+                        if (t.mesh.position.y > yLim + 1 || t.mesh.position.y < -yLim + 1) {
+                            t.mesh.position.y = t.mesh.position.y > 1 ? yLim + 1 : -yLim + 1;
+                            trackingTargetVelocity.y *= -1;
+                        }
+
+                        performTrackingRaycastCheck();
+                    }
+                });
+            }
+
+            // Bullet trajectories rendering decay
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                const laser = lasers[i];
+                laser.opacity -= laser.decaySpeed * 0.016;
+                if (laser.opacity <= 0) {
+                    scene.remove(laser.line);
+                    laser.line.geometry.dispose();
+                    laser.line.material.dispose();
+                    lasers.splice(i, 1);
+                } else {
+                    laser.material.opacity = laser.opacity;
+                }
+            }
+
+            // Explosion fire-rings physics
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.mesh.position.addScaledVector(p.velocity, 0.016);
+                p.velocity.y += p.gravity;
+                
+                p.opacity -= p.decaySpeed * 0.016;
+                if (p.opacity <= 0) {
+                    scene.remove(p.mesh);
+                    p.mesh.geometry.dispose();
+                    p.mesh.material.dispose();
+                    particles.splice(i, 1);
+                } else {
+                    p.mesh.scale.set(p.opacity, p.opacity, p.opacity);
+                    p.material.opacity = p.opacity;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Tracking Mode Continual hover raycasting
+        function performTrackingRaycastCheck() {
+            if (targets.length === 0) return;
+            const target = targets[0];
+
+            const raycaster = new THREE.Raycaster();
+            if (CONFIG.controlType === 'lock') {
+                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            } else {
+                raycaster.setFromCamera(cursorPosition, camera);
+            }
+
+            const intersects = raycaster.intersectObject(target.mesh);
+            const now = Date.now();
+
+            if (intersects.length > 0) {
+                if (!STATE.isTrackingHit) {
+                    STATE.isTrackingHit = true;
+                }
+                
+                // Smooth ticks for scores
+                if (now - STATE.lastTrackTick >= 100) {
+                    STATE.score += 25;
+                    STATE.hits++;
+                    STATE.totalClicks++;
+                    STATE.lastTrackTick = now;
+                    lights.flashLight.color.setHex(0x10b981);
+                    lights.flashLight.intensity = 1.0;
+                    
+                    triggerExplosion(intersects[0].point, 0x10b981);
+                    updateHUD();
+                }
+            } else {
+                STATE.isTrackingHit = false;
+                if (now - STATE.lastTrackTick >= 100) {
+                    STATE.totalClicks++;
+                    STATE.lastTrackTick = now;
+                    updateHUD();
+                }
+            }
+        }
+
+        // Mouse tracking inside free cursor mode
+        let cursorPosition = new THREE.Vector2(0, 0);
+        window.addEventListener('mousemove', (e) => {
+            if (CONFIG.controlType === 'cursor') {
+                const rect = renderer.domElement.getBoundingClientRect();
+                cursorPosition.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                cursorPosition.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            }
+        });
+
+        // Initialize WebGL Application
+        window.onload = function () {
+            initThreeScene();
+            applyCrosshairSettings();
+            animate();
+        }
+    </script>
+</body>
+</html>
